@@ -1,0 +1,31 @@
+FROM alpine:latest
+
+ARG AWS_ACCESS_KEY_ID
+ARG AWS_SECRET_ACCESS_KEY
+ARG IGNORED_IPS
+ARG LOGGING_DEST
+ARG OVERLAY_VERSION=1.21.7.0
+
+COPY create-users.sh .
+COPY keys /etc/ssh
+COPY s6 /etc/services.d
+
+RUN apk add --no-cache fail2ban openssh openssh-server-pam grep rsyslog rsyslog-tls \
+  && apk add --no-cache --repository http://uk.alpinelinux.org/alpine/edge/testing aws-cli bash curl jq --virtual=dependencies \
+  # s6 overlay
+  && curl -L "https://github.com/just-containers/s6-overlay/releases/download/v${OVERLAY_VERSION}/s6-overlay-amd64.tar.gz" | tar zx -C / \
+  # fail2ban
+  && mv /etc/services.d/fail2ban/*.local /etc/fail2ban/ \
+  && sed -i -e "s/{IGNORED_IPS}/$IGNORED_IPS/" /etc/fail2ban/jail.local \
+  # logging
+  && sed -i -e "s/{LOGGIN_DEST}/$LOGGING_DEST/" /etc/services.d/rsyslog/rsyslog.conf \
+  # create users via aws
+  && export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
+  && export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
+  && ./create-users.sh && rm create-users.sh \
+  && chmod -R 600 /etc/ssh \
+  && apk del --purge dependencies
+
+EXPOSE 22
+
+ENTRYPOINT ["/init"]
